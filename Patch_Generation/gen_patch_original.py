@@ -1,4 +1,5 @@
 import os
+import random
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,17 +12,15 @@ import PIL.Image as Image
 
 Image.MAX_IMAGE_PIXELS = None
 
-
 ####======================================    User Configuration
 num_thread = 4
-patch_dimension_level = 0    ## 0: 40x, 1: 20x
+patch_dimension_level = 0 ## 0: 40x, 1: 20x
 patch_level_list = [0]  #[1,2,2]
-stride = 512
-psize = 224
-psize_list = [224] #[256, 192, 256]
+stride = 256
+psize = 256
+psize_list = [256] #[256, 192, 256]
 
 tissue_mask_threshold = 0.1
-# Since Neuronal Image only has one level -> That level is 0
 mask_dimension_level = 0
 
 slides_folder_dir = '/Users/jbogahawatte/Library/CloudStorage/OneDrive-TheUniversityofMelbourne/My_PhD_Documents' \
@@ -29,15 +28,14 @@ slides_folder_dir = '/Users/jbogahawatte/Library/CloudStorage/OneDrive-TheUniver
 slide_paths = glob.glob(os.path.join(slides_folder_dir, '*.tif'))  # change the surfix '.tif' to other if necessary
 save_folder_dir = '/Users/jbogahawatte/Library/CloudStorage/OneDrive-TheUniversityofMelbourne/My_PhD_Documents' \
                   '/MND_Research/MIL_code/patches/train2'
+####======================================
 
 
-# Use OTSU method for threshold to localise the tissue regions in WSI
+
+
+#mask_level: 5, 1/32
 def get_roi_bounds(tslide, isDrawContoursOnImages=False, mask_level=5, cls_kernel=50, open_kernal=30):
 
-    # read_region -> Obtains a region from the level 0 of the neuronal image
-    # the top left pixel of the region is (0,0)
-    # The dimension of the region obtained has same dimension as the neuronal image
-    # tslide.level_dimensions[mask_level] = dimensions of the neuronal image
     subSlide = tslide.read_region((0, 0), mask_level, tslide.level_dimensions[mask_level])
     subSlide_np = np.array(subSlide)
     # subMask = subSlide.convert('L')
@@ -84,19 +82,16 @@ def get_roi_bounds(tslide, isDrawContoursOnImages=False, mask_level=5, cls_kerne
 
     return image_open_np, boundingBox
 
-def Extract_Patch_From_Slide_STRIDE(tslide:openslide.ImageSlide, tissue_mask, patch_save_folder, patch_level,
-                                    mask_level, patch_stride, patch_size, threshold, level_list=[1],
-                                    patch_size_list=[256], patch_surfix='png'):
+
+
+def Extract_Patch_From_Slide_STRIDE(tslide:openslide.ImageSlide, tissue_mask, patch_save_folder, patch_level, mask_level, patch_stride, patch_size, threshold, level_list=[1], patch_size_list=[256], patch_surfix='png'):
 
     assert patch_level == level_list[0]
     assert patch_size == patch_size_list[0]
-    # patch size = 256
-    # patch level = 0
 
     mask_sH, mask_sW = tissue_mask.shape
     print(f'tissue mask shape {tissue_mask.shape}')
 
-    # pow returns the value of 4 to the power of 3 ( 4 * 4 * 4) -> pow(4,3)
     mask_patch_size = patch_size // pow(2, mask_level-patch_level)
     mask_patch_size_square = mask_patch_size ** 2
     mask_stride = patch_stride // pow(2, mask_level-patch_level)
@@ -113,32 +108,30 @@ def Extract_Patch_From_Slide_STRIDE(tslide:openslide.ImageSlide, tissue_mask, pa
             ww = iw * mask_stride
             hh = ih * mask_stride
             if (ww+mask_patch_size) < mask_sW and (hh+mask_patch_size) < mask_sH:
-                tmask = tissue_mask[hh:hh+mask_patch_size, ww:ww+mask_patch_size]
-                mRatio = float(np.sum(tmask > 0)) / mask_patch_size_square
+                # tmask = tissue_mask[hh:hh+mask_patch_size, ww:ww+mask_patch_size]
+                # plt.imshow(tmask)
+                # plt.show()
+                # mRatio = float(np.sum(tmask > 0)) / mask_patch_size_square
+                # print(mRatio)
+                #
+                # if mRatio > threshold:
+                tsave_folder = getFolder_name(patch_save_folder, 0, 256)
 
-                if mRatio > threshold:
-                    for sstLevel, tSize in zip(level_list, patch_size_list):
-                        try:
-                            tsave_folder = getFolder_name(patch_save_folder, sstLevel, tSize)
+                sww = ww * mag_factor
+                shh = hh * mag_factor
 
-                            sww = ww * mag_factor
-                            shh = hh * mag_factor
+                cW_l0 = sww + (patch_size // 2) * pow(2, patch_level)
+                cH_l0 = shh + (patch_size // 2) * pow(2, patch_level)
 
-                            cW_l0 = sww + (patch_size // 2) * pow(2, patch_level)
-                            cH_l0 = shh + (patch_size // 2) * pow(2, patch_level)
+                tlW_l0 = cW_l0 - (256 // 2) * pow(2, 0)
+                tlH_l0 = cH_l0 - (256 // 2) * pow(2, 0)
+                tpatch = tslide.read_region((0, 0), 0, (256, 256))
+                plt.imshow(np.array(tpatch))
+                plt.show()
+                    ## (x, y) tuple giving the top left pixel in the level 0 reference frame
+                tname = f'{tslide_name}_{ww * mag_factor}_{hh * mag_factor}_{iw}_{ih}_WW_{mask_sW // mask_stride}_HH_{mask_sH // mask_stride}.{patch_surfix}'
+                tpatch.save(os.path.join(tsave_folder, tname))
 
-                            tlW_l0 = cW_l0 - (tSize // 2) * pow(2, sstLevel)
-                            tlH_l0 = cH_l0 - (tSize // 2) * pow(2, sstLevel)
-                            print('save here')
-                            tpatch = tslide.read_region((tlW_l0, tlH_l0), sstLevel, (tSize, tSize))
-                            tname = f'{tslide_name}_{ww * mag_factor}_{hh * mag_factor}_{iw}_{ih}_WW_{mask_sW // mask_stride}_HH_{mask_sH // mask_stride}.{patch_surfix}'
-                            tpatch.save(os.path.join(tsave_folder, tname))
-                        except:
-                            #raise RuntimeError(f'slide error {tslide_name}')
-                            num_error += 1
-                            print(f'slide {tslide_name} error patch {num_error}')
-    if num_error != 0:
-        print(f'---------------------In total {num_error} error patch for slide {tslide_name}')
 
 
 def getFolder_name(orig_dir, level, psize):
@@ -166,10 +159,11 @@ def Thread_PatchFromSlides(args):
         if not os.path.exists(tsave_dir_level):
             os.makedirs(tsave_dir_level)
 
-    # Open Neuronal Image
     tslide = openslide.open_slide(normSlidePath)
     tissue_mask, boundingBoxes = get_roi_bounds(tslide, isDrawContoursOnImages=False, mask_level=mask_dimension_level)  # mask_level: absolute level
     tissue_mask = tissue_mask // 255
+    # plt.imshow(tissue_mask)
+    # plt.show()
 
     Extract_Patch_From_Slide_STRIDE(tslide, tissue_mask, tsave_slide_dir,
                                                   patch_level=patch_dimension_level, mask_level=mask_dimension_level,
@@ -188,6 +182,4 @@ if __name__ == "__main__":
         slideName = os.path.basename(tSlidePath).split('.')[0]
         tSave_slide_dir = os.path.join(save_folder_dir, slideName)
         arg_list.append([tSlidePath, slideName, tSave_slide_dir])
-
-    pool.map(Thread_PatchFromSlides, arg_list)
-
+        Thread_PatchFromSlides(arg_list)
